@@ -1,4 +1,4 @@
-package stoppableNetListener
+package stoppablenetlistener
 
 // Stoppable listener based on hydrogen18/stoppableListener
 import (
@@ -33,10 +33,7 @@ func New(port int) (snl *StoppableNetListener, err error) {
 	}
 
 	// This statement *cannot* fail
-	if sl, err = stoppableListener.New(tcpL); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return
-	}
+	sl, _ = stoppableListener.New(tcpL)
 
 	snl = &StoppableNetListener{}
 	snl.stop = make(chan struct{})

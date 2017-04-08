@@ -1,15 +1,16 @@
-package stoppableNetListener
+package stoppablenetlistener
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/gurupras/gocommons"
 	"github.com/parnurzeal/gorequest"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func helloHttp(rw http.ResponseWriter, req *http.Request) {
@@ -17,51 +18,51 @@ func helloHttp(rw http.ResponseWriter, req *http.Request) {
 	rw.Write([]byte("OK"))
 }
 
-func getRequest() (gorequest.Response, []error) {
-	url := "http://localhost:8081/"
+func getRequest(port int) (gorequest.Response, []error) {
+	url := fmt.Sprintf("http://localhost:%v/", port)
 	resp, _, err := gorequest.New().Get(url).
 		End()
 	return resp, err
 }
 
 func TestListener_BadPort(t *testing.T) {
-	result := gocommons.InitResult("TestListener-BadPort")
+	t.Parallel()
+	assert := assert.New(t)
 
-	var err error
-	_, err = New(-1)
-	assert.True(t, err != nil, "StoppableNetListener created with negative port")
+	_, err := New(-1)
+	assert.NotNil(err, "Should have failed with negative port")
 
 	_, err = New(65536)
-	assert.True(t, err != nil, "StoppableNetListener created with out-of-bound port")
-
-	gocommons.HandleResult(t, true, result)
+	assert.NotNil(err, "StoppableNetListener created with out-of-bound port")
 }
 
 // We can ensure a timeout occurs just by waiting longer than the Timeout limit
 // This is what the test does
 func TestListener_Timeout(t *testing.T) {
-	result := gocommons.InitResult("TestListener-Timeout")
+	t.Parallel()
+	assert := assert.New(t)
 
-	var err error
-	var snl *StoppableNetListener
-
-	snl, err = New(32232)
-	assert.True(t, err == nil, "StoppableNetListener could not be created", err)
+	snl, err := New(32232)
+	assert.Nil(err, "Failed with valid port:", err)
 
 	snl.Timeout = 100 * time.Millisecond
 	go snl.Accept()
 
-	time.Sleep(1 * time.Second)
+	time.Sleep(300 * time.Millisecond)
 
 	snl.Stop()
-	gocommons.HandleResult(t, true, result)
 }
 
 func TestListener(t *testing.T) {
-	result := gocommons.InitResult("TestListener")
+	t.Parallel()
+	assert := assert.New(t)
+	require := require.New(t)
 
-	snl, err := New(8081)
-	assert.Nil(t, err, "Failed to create StoppableNetListener")
+	port := 8081
+	snl, err := New(port)
+	snl.Timeout = 100 * time.Millisecond
+	assert.Nil(err, "Failed to create StoppableNetListener")
+	require.NotNil(snl)
 
 	http.HandleFunc("/", helloHttp)
 	server := http.Server{}
@@ -73,16 +74,14 @@ func TestListener(t *testing.T) {
 		server.Serve(snl)
 	}()
 
-	resp, errors := getRequest()
+	resp, errors := getRequest(port)
 	buf := new(bytes.Buffer)
 	buf.ReadFrom(resp.Body)
 	payload := buf.String()
-	assert.True(t, errors == nil, "Had errors")
-	assert.Equal(t, 200, resp.StatusCode, "Failed GET request")
-	assert.Equal(t, "OK", payload, "Failed GET request")
+	assert.Nil(errors, "Had errors")
+	assert.Equal(200, resp.StatusCode, "Failed GET request")
+	assert.Equal("OK", payload, "Failed GET request")
 
 	snl.Stop()
 	wg.Wait()
-
-	gocommons.HandleResult(t, true, result)
 }
