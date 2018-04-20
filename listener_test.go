@@ -26,7 +26,6 @@ func getRequest(port int) (gorequest.Response, []error) {
 }
 
 func TestListener_BadPort(t *testing.T) {
-	t.Parallel()
 	assert := assert.New(t)
 
 	_, err := New(-1)
@@ -39,7 +38,6 @@ func TestListener_BadPort(t *testing.T) {
 // We can ensure a timeout occurs just by waiting longer than the Timeout limit
 // This is what the test does
 func TestListener_Timeout(t *testing.T) {
-	t.Parallel()
 	assert := assert.New(t)
 
 	snl, err := New(32232)
@@ -54,12 +52,12 @@ func TestListener_Timeout(t *testing.T) {
 }
 
 func TestListener(t *testing.T) {
-	t.Parallel()
 	assert := assert.New(t)
 	require := require.New(t)
 
-	port := 8081
+	port := 32232
 	snl, err := New(port)
+	require.Nil(err)
 	snl.Timeout = 100 * time.Millisecond
 	assert.Nil(err, "Failed to create StoppableNetListener")
 	require.NotNil(snl)

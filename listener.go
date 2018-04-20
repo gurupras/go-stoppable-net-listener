@@ -6,21 +6,20 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"sync"
 	"time"
-
-	"github.com/hydrogen18/stoppableListener"
 )
 
 type StoppableNetListener struct {
-	*stoppableListener.StoppableListener
-	stop         chan struct{}
-	finishedStop chan struct{}
-	Timeout      time.Duration
+	*net.TCPListener
+	Timeout    time.Duration
+	wg         sync.WaitGroup
+	AcceptChan chan net.Conn
+	stopped    bool
 }
 
 func New(port int) (snl *StoppableNetListener, err error) {
 	var tcpL net.Listener
-	var sl *stoppableListener.StoppableListener
 
 	if port < 1 {
 		err = errors.New(fmt.Sprintf("Cannot use port: %v", port))
@@ -32,55 +31,62 @@ func New(port int) (snl *StoppableNetListener, err error) {
 		return
 	}
 
-	// This statement *cannot* fail
-	sl, _ = stoppableListener.New(tcpL)
-
 	snl = &StoppableNetListener{}
-	snl.stop = make(chan struct{})
-	snl.finishedStop = make(chan struct{})
-	snl.StoppableListener = sl
+	snl.TCPListener = tcpL.(*net.TCPListener)
 	snl.Timeout = 1 * time.Second
+	snl.AcceptChan = make(chan net.Conn)
+	go snl.listen()
 	return
 }
 
 func (snl *StoppableNetListener) Accept() (net.Conn, error) {
-	var stop bool = false
+	conn := <-snl.AcceptChan
+	return conn, nil
+}
 
-	for {
+func (snl *StoppableNetListener) AcceptOneConnection() (net.Conn, error) {
+	var conn net.Conn
+	var err error
+	for !snl.stopped {
 		//Wait up to one second for a new connection
-		snl.StoppableListener.SetDeadline(time.Now().Add(snl.Timeout))
+		snl.TCPListener.SetDeadline(time.Now().Add(snl.Timeout))
 
-		newConn, err := snl.TCPListener.Accept()
+		conn, err = snl.TCPListener.Accept()
 
-		//Check for the channel being closed
-		select {
-		case <-snl.stop:
-			stop = true
-		default:
-			//If the channel is still open, continue as normal
-		}
-
-		if stop {
-			break
-		}
-
+		fmt.Printf("stopped=%v\n", snl.stopped)
 		if err != nil {
 			netErr, ok := err.(net.Error)
 
 			//If this is a timeout, then continue to wait for
 			//new connections
 			if ok && netErr.Timeout() && netErr.Temporary() {
+				fmt.Printf("timeout: %v\n", err)
 				continue
+			} else {
+				break
 			}
 		}
-		return newConn, err
+		break
 	}
-	close(snl.finishedStop)
-	return nil, stoppableListener.StoppedError
+	return conn, err
+}
+
+func (snl *StoppableNetListener) listen() {
+	snl.wg.Add(1)
+	defer snl.wg.Done()
+	defer snl.TCPListener.Close()
+
+	for !snl.stopped {
+		if conn, err := snl.AcceptOneConnection(); err != nil {
+			// We should probably handle this
+		} else {
+			snl.AcceptChan <- conn
+		}
+	}
 }
 
 func (snl *StoppableNetListener) Stop() {
-	close(snl.stop)
+	snl.stopped = true
 	// Wait for Accept loop to terminate
-	_, _ = <-snl.finishedStop
+	snl.wg.Wait()
 }
